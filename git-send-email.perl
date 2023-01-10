@@ -787,14 +787,6 @@ if (@rev_list_opts) {
 
 @files = handle_backup_files(@files);
 
-if ($validate) {
-	foreach my $f (@files) {
-		unless (-p $f) {
-			validate_patch($f, $target_xfer_encoding);
-		}
-	}
-}
-
 if (@files) {
 	unless ($quiet) {
 		print $_,"\n" for (@files);
@@ -1738,6 +1730,16 @@ EOF
 	return 1;
 }
 
+if ($validate) {
+	foreach my $f (@files) {
+		unless (-p $f) {
+		        pre_process_file($f, 1);
+
+			validate_patch($f, $target_xfer_encoding);
+		}
+	}
+}
+
 $in_reply_to = $initial_in_reply_to;
 $references = $initial_in_reply_to || '';
 $message_num = 0;
@@ -2101,11 +2103,20 @@ sub validate_patch {
 			chdir($repo->wc_path() or $repo->repo_path())
 				or die("chdir: $!");
 			local $ENV{"GIT_DIR"} = $repo->repo_path();
+
+			my ($recipients_ref, $to, $date, $gitversion, $cc, $ccline, $header) = gen_header();
+
+			require File::Temp;
+			my ($header_filehandle, $header_filename) = File::Temp::tempfile(
+                            ".gitsendemail.header.XXXXXX", DIR => $repo->repo_path());
+			print $header_filehandle $header;
+
 			my @cmd = ("git", "hook", "run", "--ignore-missing",
 				    $hook_name, "--");
-			my @cmd_msg = (@cmd, "<patch>");
-			my @cmd_run = (@cmd, $target);
+			my @cmd_msg = (@cmd, "<patch>", "<header>");
+			my @cmd_run = (@cmd, $target, $header_filename);
 			$hook_error = system_or_msg(\@cmd_run, undef, "@cmd_msg");
+			unlink($header_filehandle);
 			chdir($cwd_save) or die("chdir: $!");
 		}
 		if ($hook_error) {
