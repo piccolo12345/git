@@ -162,7 +162,7 @@ test_expect_success TTY 'progress with tty' '
 	cleanup_clone $enlistment
 '
 
-test_expect_success TTY 'progress without tty' '
+test_expect_success 'progress without tty' '
 	enlistment=progress2 &&
 
 	test_config -C to-clone uploadpack.allowfilter true &&
