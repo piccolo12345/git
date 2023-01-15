@@ -96,3 +96,19 @@ fetch.writeCommitGraph::
 	merge and the write may take longer. Having an updated commit-graph
 	file helps performance of many Git commands, including `git merge-base`,
 	`git push -f`, and `git log --graph`. Defaults to false.
+
+fetch.bundleURI::
+	This value stores a URI for fetching Git object data from a bundle URI
+	before performing an incremental fetch from the origin Git server. If
+	the value is `<uri>` then running `git fetch <args>` is equivalent to
+	first running `git fetch --bundle-uri=<uri>` immediately before
+	`git fetch <args>`. See details of the `--bundle-uri` option in
+	linkgit:git-fetch[1].
+
+fetch.bundleCreationToken::
+	When using `fetch.bundleURI` to fetch incrementally from a bundle
+	list that uses the "creationToken" heuristic, this config value
+	stores the maximum `creationToken` value of the downloaded bundles.
+	This value is used to prevent downloading bundles in the future
+	if the advertised `creationToken` is not strictly larger than this
+	value.

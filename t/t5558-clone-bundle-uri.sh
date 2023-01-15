@@ -284,7 +284,17 @@ test_expect_success 'clone HTTP bundle' '
 	test_config -C clone-http log.excludedecoration refs/bundle/
 '
 
+# usage: test_bundle_downloaded <bundle-name> <trace-file>
+test_bundle_downloaded () {
+	cat >pattern <<-EOF &&
+	"event":"child_start".*"argv":\["git-remote-https","$HTTPD_URL/$1"\]
+	EOF
+	grep -f pattern "$2"
+}
+
 test_expect_success 'clone bundle list (HTTP, no heuristic)' '
+	test_when_finished rm -f trace*.txt &&
+
 	cp clone-from/bundle-*.bundle "$HTTPD_DOCUMENT_ROOT_PATH/" &&
 	cat >"$HTTPD_DOCUMENT_ROOT_PATH/bundle-list" <<-EOF &&
 	[bundle]
@@ -304,12 +314,19 @@ test_expect_success 'clone bundle list (HTTP, no heuristic)' '
 		uri = $HTTPD_URL/bundle-4.bundle
 	EOF
 
-	git clone --bundle-uri="$HTTPD_URL/bundle-list" \
+	GIT_TRACE2_EVENT="$(pwd)/trace-clone.txt" \
+		git clone --bundle-uri="$HTTPD_URL/bundle-list" \
 		clone-from clone-list-http  2>err &&
 	! grep "Repository lacks these prerequisite commits" err &&
 
 	git -C clone-from for-each-ref --format="%(objectname)" >oids &&
-	git -C clone-list-http cat-file --batch-check <oids
+	git -C clone-list-http cat-file --batch-check <oids &&
+
+	for b in 1 2 3 4
+	do
+		test_bundle_downloaded bundle-$b.bundle trace-clone.txt ||
+			return 1
+	done
 '
 
 test_expect_success 'clone bundle list (HTTP, any mode)' '
@@ -348,6 +365,189 @@ test_expect_success 'clone bundle list (HTTP, any mode)' '
 	refs/bundles/right
 	EOF
 	test_cmp expect actual
+'
+
+test_expect_success 'clone bundle list (http, creationToken)' '
+	test_when_finished rm -f trace*.txt &&
+
+	cp clone-from/bundle-*.bundle "$HTTPD_DOCUMENT_ROOT_PATH/" &&
+	cat >"$HTTPD_DOCUMENT_ROOT_PATH/bundle-list" <<-EOF &&
+	[bundle]
+		version = 1
+		mode = all
+		heuristic = creationToken
+
+	[bundle "bundle-1"]
+		uri = bundle-1.bundle
+		creationToken = 1
+
+	[bundle "bundle-2"]
+		uri = bundle-2.bundle
+		creationToken = 2
+
+	[bundle "bundle-3"]
+		uri = bundle-3.bundle
+		creationToken = 3
+
+	[bundle "bundle-4"]
+		uri = bundle-4.bundle
+		creationToken = 4
+	EOF
+
+	GIT_TRACE2_EVENT=$(pwd)/trace-clone.txt \
+	git clone --bundle-uri="$HTTPD_URL/bundle-list" \
+		clone-from clone-list-http-2 &&
+
+	git -C clone-from for-each-ref --format="%(objectname)" >oids &&
+	git -C clone-list-http-2 cat-file --batch-check <oids &&
+
+	for b in 1 2 3 4
+	do
+		test_bundle_downloaded bundle-$b.bundle trace-clone.txt ||
+			return 1
+	done
+'
+
+test_expect_success 'clone bundle list (http, creationToken)' '
+	test_when_finished rm -f trace*.txt &&
+
+	cp clone-from/bundle-*.bundle "$HTTPD_DOCUMENT_ROOT_PATH/" &&
+	cat >"$HTTPD_DOCUMENT_ROOT_PATH/bundle-list" <<-EOF &&
+	[bundle]
+		version = 1
+		mode = all
+		heuristic = creationToken
+
+	[bundle "bundle-1"]
+		uri = bundle-1.bundle
+		creationToken = 1
+
+	[bundle "bundle-2"]
+		uri = bundle-2.bundle
+		creationToken = 2
+	EOF
+
+	GIT_TRACE2_EVENT=$(pwd)/trace-clone.txt \
+	git clone --bundle-uri="$HTTPD_URL/bundle-list" \
+		clone-from clone-token-http &&
+
+	test_bundle_downloaded bundle-1.bundle trace-clone.txt &&
+	test_bundle_downloaded bundle-2.bundle trace-clone.txt
+'
+
+test_expect_success 'http clone with bundle.heuristic creates fetch.bundleURI' '
+	test_when_finished rm -rf fetch-http-4 trace*.txt &&
+
+	cat >"$HTTPD_DOCUMENT_ROOT_PATH/bundle-list" <<-EOF &&
+	[bundle]
+		version = 1
+		mode = all
+		heuristic = creationToken
+
+	[bundle "bundle-1"]
+		uri = bundle-1.bundle
+		creationToken = 1
+	EOF
+
+	GIT_TRACE2_EVENT="$(pwd)/trace-clone.txt" \
+	git clone --single-branch --branch=base \
+		--bundle-uri="$HTTPD_URL/bundle-list" \
+		"$HTTPD_URL/smart/fetch.git" fetch-http-4 &&
+
+	test_cmp_config -C fetch-http-4 "$HTTPD_URL/bundle-list" fetch.bundleuri &&
+	test_cmp_config -C fetch-http-4 1 fetch.bundlecreationtoken &&
+
+	# The clone should copy two files: the list and bundle-1.
+	test_bundle_downloaded bundle-list trace-clone.txt &&
+	test_bundle_downloaded bundle-1.bundle trace-clone.txt &&
+
+	# only received base ref from bundle-1
+	git -C fetch-http-4 for-each-ref --format="%(refname)" "refs/bundles/*" >refs &&
+	cat >expect <<-\EOF &&
+	refs/bundles/base
+	EOF
+	test_cmp expect refs &&
+
+	cat >>"$HTTPD_DOCUMENT_ROOT_PATH/bundle-list" <<-EOF &&
+	[bundle "bundle-2"]
+		uri = bundle-2.bundle
+		creationToken = 2
+	EOF
+
+	# Fetch the objects for bundle-2 _and_ bundle-3.
+	GIT_TRACE2_EVENT="$(pwd)/trace1.txt" \
+		git -C fetch-http-4 fetch origin --no-tags \
+		refs/heads/left:refs/heads/left \
+		refs/heads/right:refs/heads/right &&
+
+	test_cmp_config -C fetch-http-4 2 fetch.bundlecreationtoken &&
+
+	# This fetch should copy two files: the list and bundle-2.
+	test_bundle_downloaded bundle-list trace1.txt &&
+	test_bundle_downloaded bundle-2.bundle trace1.txt &&
+	! test_bundle_downloaded bundle-1.bundle trace1.txt &&
+
+	# received left from bundle-2
+	git -C fetch-http-4 for-each-ref --format="%(refname)" "refs/bundles/*" >refs &&
+	cat >expect <<-\EOF &&
+	refs/bundles/base
+	refs/bundles/left
+	EOF
+	test_cmp expect refs &&
+
+	# No-op fetch
+	GIT_TRACE2_EVENT="$(pwd)/trace1b.txt" \
+		git -C fetch-http-4 fetch origin --no-tags \
+		refs/heads/left:refs/heads/left \
+		refs/heads/right:refs/heads/right &&
+	test_bundle_downloaded bundle-list trace1b.txt &&
+	! test_bundle_downloaded bundle-1.bundle trace1b.txt &&
+	! test_bundle_downloaded bundle-2.bundle trace1b.txt &&
+
+	cat >>"$HTTPD_DOCUMENT_ROOT_PATH/bundle-list" <<-EOF &&
+	[bundle "bundle-3"]
+		uri = bundle-3.bundle
+		creationToken = 3
+
+	[bundle "bundle-4"]
+		uri = bundle-4.bundle
+		creationToken = 4
+	EOF
+
+	# This fetch should skip bundle-3.bundle, since its objets are
+	# already local (we have the requisite commits for bundle-4.bundle).
+	GIT_TRACE2_EVENT="$(pwd)/trace2.txt" \
+		git -C fetch-http-4 fetch origin --no-tags \
+		refs/heads/merge:refs/heads/merge &&
+
+	test_cmp_config -C fetch-http-4 4 fetch.bundlecreationtoken &&
+
+	# This fetch should copy three files: the list, bundle-3, and bundle-4.
+	test_bundle_downloaded bundle-list trace2.txt &&
+	test_bundle_downloaded bundle-4.bundle trace2.txt &&
+	! test_bundle_downloaded bundle-1.bundle trace2.txt &&
+	! test_bundle_downloaded bundle-2.bundle trace2.txt &&
+	! test_bundle_downloaded bundle-3.bundle trace2.txt &&
+
+	# received merge ref from bundle-4, but right is missing
+	# because we did not download bundle-3.
+	git -C fetch-http-4 for-each-ref --format="%(refname)" "refs/bundles/*" >refs &&
+
+	cat >expect <<-\EOF &&
+	refs/bundles/base
+	refs/bundles/left
+	refs/bundles/merge
+	EOF
+	test_cmp expect refs &&
+
+	# No-op fetch
+	GIT_TRACE2_EVENT="$(pwd)/trace2b.txt" \
+		git -C fetch-http-4 fetch origin &&
+	test_bundle_downloaded bundle-list trace2b.txt &&
+	! test_bundle_downloaded bundle-1.bundle trace2b.txt &&
+	! test_bundle_downloaded bundle-2.bundle trace2b.txt &&
+	! test_bundle_downloaded bundle-3.bundle trace2b.txt &&
+	! test_bundle_downloaded bundle-4.bundle trace2b.txt
 '
 
 # Do not add tests here unless they use the HTTP server, as they will
