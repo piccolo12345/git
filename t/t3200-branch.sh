@@ -242,12 +242,13 @@ test_expect_success 'git branch -M baz bam should succeed when baz is checked ou
 test_expect_success 'git branch -M baz bam should succeed within a worktree in which baz is checked out' '
 	git checkout -b baz &&
 	git worktree add -f bazdir baz &&
-	(
-		cd bazdir &&
-		git branch -M baz bam &&
-		test $(git rev-parse --abbrev-ref HEAD) = bam
-	) &&
-	test $(git rev-parse --abbrev-ref HEAD) = bam &&
+	git -C "$bazdir" branch -M baz bam &&
+	echo "bam" >expect &&
+	git -C "$bazdir" rev-parse --abbrev-ref HEAD >actual &&
+	test_cmp expect actual &&
+	echo "bam" >expect &&
+	git rev-parse --abbrev-ref HEAD >actual &&
+	test_cmp expect actual &&
 	rm -r bazdir &&
 	git worktree prune
 '
