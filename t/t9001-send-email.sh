@@ -568,9 +568,10 @@ test_expect_success $PREREQ "--validate respects absolute core.hooksPath path" '
 test_expect_success $PREREQ "--validate hook supports header argument" '
 	test_when_finished "rm my-hooks.ran" &&
 	write_script my-hooks/sendemail-validate <<-\EOF &&
-	filesize=$(stat -c%s "$2")
-	if [ "$filesize" != "0" ]; then
-	>my-hooks.ran
+	rm -f my-hooks.ran
+	if test -s "$2"
+	then
+		>my-hooks.ran
 	fi
 	exit 1
 	EOF
