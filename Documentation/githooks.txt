@@ -595,10 +595,19 @@ processed by rebase.
 sendemail-validate
 ~~~~~~~~~~~~~~~~~~
 
-This hook is invoked by linkgit:git-send-email[1].  It takes a single parameter,
-the name of the file that holds the e-mail to be sent.  Exiting with a
-non-zero status causes `git send-email` to abort before sending any
-e-mails.
+This hook is invoked by linkgit:git-send-email[1].
+
+It takes these command line arguments:
+1. the name of the file that holds the e-mail to be sent.
+2. the name of the file that holds the SMTP headers to be used.
+
+The hook doesn't need to support multiple header names (for example only Cc
+is passed). However, it does need to understand that lines beginning with
+whitespace belong to the previous header.  The header information follows
+the same format as the confirmation given at the end of send-email.
+
+Exiting with a non-zero status causes `git send-email` to abort
+before sending any e-mails.
 
 fsmonitor-watchman
 ~~~~~~~~~~~~~~~~~~
