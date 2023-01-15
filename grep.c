@@ -317,8 +317,21 @@ static void compile_pcre2_pattern(struct grep_pat *p, const struct grep_opt *opt
 	pcre2_config(PCRE2_CONFIG_JIT, &p->pcre2_jit_on);
 	if (p->pcre2_jit_on) {
 		jitret = pcre2_jit_compile(p->pcre2_pattern, PCRE2_JIT_COMPLETE);
-		if (jitret)
-			die("Couldn't JIT the PCRE2 pattern '%s', got '%d'\n", p->pattern, jitret);
+		if (jitret) {
+			/*
+			 * Even though pcre2_config(PCRE2_CONFIG_JIT, ...)
+			 * indicated JIT support, the library might still
+			 * fail to generate JIT code for various reasons,
+			 * e.g. when SELinux's 'deny_execmem' or PaX's
+			 * MPROTECT prevent creating W|X memory mappings.
+			 *
+			 * Instead of faling hard, fall back to interpreter
+			 * mode, just as if the pattern was prefixed with
+			 * '(*NO_JIT)'.
+			 */
+			p->pcre2_jit_on = 0;
+			return;
+		}
 
 		/*
 		 * The pcre2_config(PCRE2_CONFIG_JIT, ...) call just
